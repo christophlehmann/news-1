@@ -34,6 +34,7 @@ use TYPO3\CMS\Core\Pagination\SimplePagination;
 use TYPO3\CMS\Core\Pagination\SlidingWindowPagination;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Property\TypeConverter\PersistentObjectConverter;
@@ -260,23 +261,38 @@ class NewsController extends NewsBaseController
         }
 
         $event = $this->eventDispatcher->dispatch(new NewsListActionEvent($this, $assignedValues, $this->request));
-        $this->view->assignMultiple($event->getAssignedValues());
+        $assignedValues = $event->getAssignedValues();
 
         // pagination
-        $paginationConfiguration = $this->settings['list']['paginate'] ?? [];
+        $paginationConfiguration = $assignedValues['settings']['list']['paginate'] ?? [];
         $itemsPerPage = (int)(($paginationConfiguration['itemsPerPage'] ?? '') ?: 10);
         $maximumNumberOfLinks = (int)($paginationConfiguration['maximumNumberOfLinks'] ?? 0);
+        $hidePagination = ($this->settings['hidePagination'] ?? 0) === 1
+            || MathUtility::isIntegerInRange($maximumNumberOfLinks, 1, $itemsPerPage);
 
-        $currentPage = max(1, $this->request->hasArgument('currentPage') ? (int)$this->request->getArgument('currentPage') : 1);
-        $paginator = GeneralUtility::makeInstance(QueryResultPaginator::class, $event->getAssignedValues()['news'], $currentPage, $itemsPerPage, (int)($this->settings['limit'] ?? 0), (int)($this->settings['offset'] ?? 0));
-        $paginationClass = $paginationConfiguration['class'] ?? SimplePagination::class;
-        $pagination = $this->getPagination($paginationClass, $maximumNumberOfLinks, $paginator);
+        if ($hidePagination) {
+            $assignedValues['settings']['hidePagination'] = true;
+        } else {
+            $currentPage = max(1, $this->request->hasArgument('currentPage') ? (int)$this->request->getArgument('currentPage') : 1);
+            $paginator = GeneralUtility::makeInstance(
+                QueryResultPaginator::class,
+                $assignedValues['news'],
+                $currentPage,
+                $itemsPerPage,
+                (int)($assignedValues['settings']['limit'] ?? 0),
+                (int)($assignedValues['settings']['offset'] ?? 0)
+            );
+            $paginationClass = $paginationConfiguration['class'] ?? SimplePagination::class;
+            $pagination = $this->getPagination($paginationClass, $maximumNumberOfLinks, $paginator);
 
-        $this->view->assign('pagination', [
-            'currentPage' => $currentPage,
-            'paginator' => $paginator,
-            'pagination' => $pagination,
-        ]);
+            $this->view->assign('pagination', [
+                'currentPage' => $currentPage,
+                'paginator' => $paginator,
+                'pagination' => $pagination,
+            ]);
+        }
+
+        $this->view->assignMultiple($assignedValues);
 
         Cache::addPageCacheTagsByDemandObject($demand);
         return $this->htmlResponse();
